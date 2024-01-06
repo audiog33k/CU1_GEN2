@@ -1,7 +1,7 @@
 /*
 Project: 	Professor Wiseacres - FertiWiser
 Author:		Dan Patten
-Date:           12-13-2023
+Date:           01-06-2024
 Compiler        IAR 9.50.1
 Target CPU:     ARM32 M4 Tiva
 CPU Model:      TM4C1233D5PMI
@@ -165,7 +165,9 @@ Version Zip     Date
                                 - Add some documentation. 
                                 - Fix bug in StoreIntToEEPROM(), only low byte was stored.
                           
-1.0.1                           - Add current tracking
+1.0.1   BUP101      01-06-2024  - Add current read functions.  The RU1 will read the current sensor individually enabling outputs and measures prior to while(1) loop starts.  The values are transmitted in 5 second scheduler
+                                    permanently anticiapting more current code that is activley measuring.  Commands RS485 function [INQCURRENT?] and BLE command [GETCURRENT?] added.  Functions: CurrentTestAllOutputs(),
+                                    CurrentMeasureMaxMin(), CurrentEstablishAverage(), InquireCurrent() added.
 
 
 ======================
@@ -596,46 +598,48 @@ int main(void)
         }
     } 
 } 
-
 // ****************************************************************************
 // ************************** CurrentTestAllOutputs ***************************
 // ****************************************************************************
 // 
-// This function measures current for Solenoid 1,2,3, InjectorA, Injector B.
+// This function measures current for Solenoid 1,2,3, InjectorA, Injector B and Fan. This is
+// blocking function and is called before the while(1) main loop starts.  Global variables
+// are loaded that will be transmitted to the CU1.
 //
 void CurrentTestAllOutputs(void)
 {
     if (flagBoardType == BOARD_RU1)                                             // are we a RU1?
     {    
-        GPIOPinWrite(PORT_A, PIN_RU1_SOL1, PIN_RU1_SOL1);                           // turn on opto LED (high asserted)   
+        GPIOPinWrite(PORT_A, PIN_RU1_SOL1, PIN_RU1_SOL1);                       // turn on opto LED (high asserted)   
         globalCurrentSol1 = CurrentMeasureMaxMin();
-        GPIOPinWrite(PORT_A, PIN_RU1_SOL1, 0);                                      // turn off 
+        GPIOPinWrite(PORT_A, PIN_RU1_SOL1, 0);                                  // turn off 
         DelayMilliSecondsBlocking(100);                                         
 
-        GPIOPinWrite(PORT_A, PIN_RU1_SOL2, PIN_RU1_SOL2);                           // turn on opto LED (high asserted)   
+        GPIOPinWrite(PORT_A, PIN_RU1_SOL2, PIN_RU1_SOL2);                       // turn on opto LED (high asserted)   
         globalCurrentSol2 = CurrentMeasureMaxMin();
-        GPIOPinWrite(PORT_A, PIN_RU1_SOL2, 0);                                      // turn off 
+        GPIOPinWrite(PORT_A, PIN_RU1_SOL2, 0);                                  // turn off 
         DelayMilliSecondsBlocking(100);                                         
         
-        GPIOPinWrite(PORT_A, PIN_RU1_SOL3, PIN_RU1_SOL3);                           // turn on opto LED (high asserted)   
+        GPIOPinWrite(PORT_A, PIN_RU1_SOL3, PIN_RU1_SOL3);                       // turn on opto LED (high asserted)   
         globalCurrentSol3 = CurrentMeasureMaxMin();
-        GPIOPinWrite(PORT_A, PIN_RU1_SOL3, 0);                                      // turn off 
+        GPIOPinWrite(PORT_A, PIN_RU1_SOL3, 0);                                  // turn off 
         DelayMilliSecondsBlocking(100);                                        
 
-        GPIOPinWrite(PORT_A, PIN_RU1_INJA, PIN_RU1_INJA);                           // turn on opto LED (high asserted)   
+        GPIOPinWrite(PORT_A, PIN_RU1_INJA, PIN_RU1_INJA);                       // turn on opto LED (high asserted)   
         globalCurrentInjA = CurrentMeasureMaxMin();
-        GPIOPinWrite(PORT_A, PIN_RU1_INJA, 0);                                      // turn off 
+        GPIOPinWrite(PORT_A, PIN_RU1_INJA, 0);                                  // turn off 
         DelayMilliSecondsBlocking(100);                                         
 
-        GPIOPinWrite(PORT_A, PIN_RU1_INJB, PIN_RU1_INJB);                           // turn on opto LED (high asserted)   
+        GPIOPinWrite(PORT_A, PIN_RU1_INJB, PIN_RU1_INJB);                       // turn on opto LED (high asserted)   
         globalCurrentInjB = CurrentMeasureMaxMin();
-        GPIOPinWrite(PORT_A, PIN_RU1_INJB, 0);                                      // turn off 
+        GPIOPinWrite(PORT_A, PIN_RU1_INJB, 0);                                  // turn off 
         DelayMilliSecondsBlocking(100);                                       
 
-        FAST_GPIOPinWrite(PORT_B, PIN_FAN_CTRL,0);                                  // CLR is fan on.
+        FAST_GPIOPinWrite(PORT_B, PIN_FAN_CTRL,0);                              // CLR is fan on.
         globalCurrentFan = CurrentMeasureMaxMin();
-        FAST_GPIOPinWrite(PORT_B, PIN_FAN_CTRL,PIN_FAN_CTRL);                       // SET is fan off.
+        FAST_GPIOPinWrite(PORT_B, PIN_FAN_CTRL,PIN_FAN_CTRL);                   // SET is fan off.
 
+        // transmit results out debug port
         txBuffer[0] = 'S';
         txBuffer[1] = 'o';
         txBuffer[2] = 'l';
@@ -719,8 +723,12 @@ void CurrentTestAllOutputs(void)
 // ************************** CurrentMeasureMaxMin ****************************
 // ****************************************************************************
 // 
+// This is a blocking function that has forced delays.
+//
 // This function will measure a maximum and minimum current and calculate difference between the two. 
-// The difference is returned.
+// The difference is returned.  The Hall effect current sensor output is centered on 2.5V and since the 
+// current is AC, max readings will be above and below the center point.   The max and min is measured
+// which coresonds to a current peak to peak.
 //
 // Typical returned values are shown below.
 //
@@ -743,7 +751,7 @@ unsigned int CurrentMeasureMaxMin(void)
     
     if (flagBoardType == BOARD_RU1)                                             // are we a RU1?
     {
-        localCurrentMax = globalCurrentAverage;
+        localCurrentMax = globalCurrentAverage;                                 // start min and max values at a central point
         localCurrentMin = globalCurrentAverage;
         
         GPIOPinWrite(PORT_A, PIN_RU1_SAFETY, ~GPIOPinRead(PORT_A, PIN_RU1_SAFETY)); // toggle the safety pin
@@ -762,11 +770,11 @@ unsigned int CurrentMeasureMaxMin(void)
                 ADCProcessorTrigger(ADC0_BASE, ADC_SAMPLE_SEQUENCE);		// Trigger another ADC conversion
 
                 localCurrentNow =  globalADCVar[0];
-                DelayMilliSecondsBlocking(1);
+                DelayMilliSecondsBlocking(1);                                   // force our sampling rate to be 1Kz.
 
-                if (localCurrentNow > localCurrentMax)                      // is value greater than max?
+                if (localCurrentNow > localCurrentMax)                          // is value greater than max?
                 {
-                    localCurrentMax = localCurrentNow;                      // store max
+                    localCurrentMax = localCurrentNow;                          // store max
                 }
                 else if (localCurrentNow < localCurrentMin)
                 {
@@ -810,12 +818,6 @@ unsigned int CurrentMeasureMaxMin(void)
             SendStringDebug(txBuffer);
 */
                 
-//                if (GPIOPinRead(PORT_F, PIN_SWITCH3) == 0)                            // button pressed           
-//                {
-//                    SendStringDebug("> RESET <");
-//                    localCurrentMax = globalCurrentAverage;
-//                    globalCurrentMin = globalCurrentAverage;                 
-//                }                       
     }              
     return localCurrentDif;
 }
@@ -2529,6 +2531,7 @@ void InquireInjectorCount(void)
 // ****************************** InquireCurrent ******************************
 // ****************************************************************************
 //
+// This function is a RS485 command only where the CU1 request current data from the RU1.
 //
 void InquireCurrent(void)
 {
@@ -2538,7 +2541,7 @@ void InquireCurrent(void)
         {
             
         }
-        else                                                                    // flagExpand not set, go ahead request injector
+        else                                                                    // flagExpand not set, go ahead request currents
         {
             SendStringRS485NoChecking("[INQCURRENT?]");  
         }
@@ -2820,50 +2823,50 @@ void LEDPortWriteDecimal(unsigned char recData, unsigned recDecimal)
 // D = Debug
 // B = BLE (Bluetooth Low Energy)
 // 
-// Command              Description             CU1             RU1
-//                                              In              Out     In      Out
+// Command              Description             CU1     RU1
+//                                              In      Out     In      Out
 // ==========           =============           ====    ====    ====    ====
-// [Z:-,I-:-,-]         Zone                    4       4                               Zone command, example: Z:1,IA:8,P = set zone#1 injectorA to a setting of 8, Primary
+// [Z:-,I-:-,-]         Zone                    4       4                       Zone command, example: Z:1,IA:8,P = set zone#1 injectorA to a setting of 8, Primary
 //                                                                              This is data stream used when the CU1 transmits to the RU1
 //                                                                       
 // [H]                  Hello World             D,B,4   D,B,4   D,B     D,B       
-// [WD---D---]          EEPROM Wr Dec           D,B     D,B     D,B                             Example write location 0x33 with data 0x55 = [WH33H55]
+// [WD---D---]          EEPROM Wr Dec           D,B     D,B     D,B             Example write location 0x33 with data 0x55 = [WH33H55]
 // [WH--H--]            EEPROM Wr Hex   
-// [RD---]              EEPROM Rd Dec           D,B     D,B     D,B                             Example, read hex location 0x03 = [RD03]                      
-// [RH--]               EEPROM Rd Hex                                                   Return value: [A:0x-- D:0x--]
+// [RD---]              EEPROM Rd Dec           D,B     D,B     D,B             Example, read hex location 0x03 = [RD03]                      
+// [RH--]               EEPROM Rd Hex                                           Return value: [A:0x-- D:0x--]
 // [V]                  Version                 D,B,4   D,B,4   D,4    D,4
 // [BOOT]               Reboot                  D,B             D,B
-// [S:-,I-:-]           Set zone                D,B                                             example: [S:1,IA:8] = set CU1 zone#1 Injector A to 8
+// [S:-,I-:-]           Set zone                D,B                             Example: [S:1,IA:8] = set CU1 zone#1 Injector A to 8
 //
-// [ALLRD?]             Read ALL zones          D,B     D,B                                     Read all zone injector settings
+// [ALLRD?]             Read ALL zones          D,B     D,B                     Read all zone injector settings
 //                                                                              Return value: [ALLRD* A A A A A A A A A A A A B B B B B B B B B B B B]
 //
-// [ALLWR>]             Write ALL zones         D,B                                             Write all zone injector settings
+// [ALLWR>]             Write ALL zones         D,B                             Write all zone injector settings
 //                                                                              Write value: [ALLWR> A A A A A A A A A A A A B B B B B B B B B B B B]
 //
-// [COMMIT]             Commit EEPROM           D,B                                             Write all zone injector settings to EEPROM
-// [CLEARMAX]           Clear max temp          D,B                                             Clear max stored max temperature on RU1
-// [CLEARINJECT]        Clear inector count                                                 Clear current count of injections on RU1
-// [CLEARINJECTA]       Clear injection cnt A                                                 Clear current count of injections A on RU1
-// [CLEARINJECTB]       Clear injection cnt B                                                 Clear current count of injections B on RU1
+// [COMMIT]             Commit EEPROM           D,B                             Write all zone injector settings to EEPROM
+// [CLEARMAX]           Clear max temp          D,B                             Clear max stored max temperature on RU1
+// [CLEARINJECT]        Clear inector count                                     Clear current count of injections on RU1
+// [CLEARINJECTA]       Clear injection cnt A                                   Clear current count of injections A on RU1
+// [CLEARINJECTB]       Clear injection cnt B                                   Clear current count of injections B on RU1
 //
-// [QON]                Quiet On                D,B                                             [QON] or [QOFF], QON will stop data transmitting on RS485 bus
+// [QON]                Quiet On                D,B                             [QON] or [QOFF], QON will stop data transmitting on RS485 bus
 // [QOFF]               Quiet Off
 //
-// [GETTEMPALL?]        Get Both                D,B,4   D,B                                     Debug/BLE requests CU1 temperature, returns [GETALL*000,000]
-// [GETINJECT?]         Get Injector count      D,B,4                                           Debug/BLE request Injector A&B count Return value: [INQINJECT*xxxxxxxx,xxxxxxxx]
-// [GETCURRENT?]        Get Current             D,B,4                                           Debug/BLE request Current.  Return value: [INQCURRENT*xxxxxxxx,xxxxxxxx]
+// [GETTEMPALL?]        Get Both                D,B,4   D,B                     Debug/BLE requests CU1 temperature, returns [GETALL*000,000]
+// [GETINJECT?]         Get Injector count      D,B,4                           Debug/BLE request Injector A&B count Return value: [INQINJECT*xxxxxxxx,xxxxxxxx]
+// [GETCURRENT?]        Get Current             D,B,4                           Debug/BLE request Current.  Return value: [INQCURRENT*xxxxxxxx,xxxxxxxx]
 //
-// [TESTA]              Test Injector           D,B                                             This will issue a single pulse of the injector A                                           
-// [TESTB]              Test Injector           D,B                                             This will issue a single pulse of the injector B                                           
+// [TESTA]              Test Injector           D,B                             This will issue a single pulse of the injector A                                           
+// [TESTB]              Test Injector           D,B                             This will issue a single pulse of the injector B                                           
 //
-// [BLEBOOT]            Reset BLE               D,B                                             Reboots the BLE module
-// [BLENAME?]           BLE Name?               D,B                                             Returns BLE name that Tiva gets upon boot.  Name is from Tiva RAM
-// [BLEBTA?]            BLE BTA?                D,B                                             Returns BLE address that Tiva gets upon boot.  Name is from Tiva RAM
-// [BLEVER?]            BLE VER?                D,B                                             Returns BLE module firmware version
-// [BLESETNAME>xxxxx]                           D,B                                             Sets the BLE module name
+// [BLEBOOT]            Reset BLE               D,B                             Reboots the BLE module
+// [BLENAME?]           BLE Name?               D,B                             Returns BLE name that Tiva gets upon boot.  Name is from Tiva RAM
+// [BLEBTA?]            BLE BTA?                D,B                             Returns BLE address that Tiva gets upon boot.  Name is from Tiva RAM
+// [BLEVER?]            BLE VER?                D,B                             Returns BLE module firmware version
+// [BLESETNAME>xxxxx]                           D,B                             Sets the BLE module name
 //
-// [EXPAND]     Make slave                      D,B                                             Turns a CU1 into a expansion unit so it does not transmit valve replication    
+// [EXPAND]     Make slave                      D,B                             Turns a CU1 into a expansion unit so it does not transmit valve replication    
 //
 // [NSET------] SN SET                                                          Set the serial number
 //
@@ -2874,11 +2877,9 @@ void LEDPortWriteDecimal(unsigned char recData, unsigned recDecimal)
 // Exclusive RS485 Commands
 // ========================
 //
-// [FLOW?]              Flow request            4               4               Board to board communication only
-//
-// [INQTEMPALL]         Temperature             4               4               Board to board only, CU1 requests RU1 current and max temperature
-// [INQINJECT]                                  4               4               Board to board only, CU1 request RU1 injector count
-// [INQCURRENT]                                                                 Board to board only, CU1 request RU1 current measurements
+// [INQTEMPALL?]         Temperature             4               4              Board to board only, CU1 requests RU1 current and max temperature
+// [INQINJEC?T]                                  4               4              Board to board only, CU1 request RU1 injector count
+// [INQCURRENT?]                                                                Board to board only, CU1 request RU1 current measurements
 // [LOOP] [BACK]
 // [485CLEARMAX]                                                                RU1 received, clears max temperature
 // [485CLEARINJECTA]                                                            RU1 received, clears injection A counts
@@ -3715,12 +3716,6 @@ void CommandProcessTemp(void)
 //
 void CommandProcessInjectorCount(void)
 {
-//    unsigned int local10k;
-//    unsigned int local1k;
-//    unsigned int local100;
-//    unsigned int local10;
-//    unsigned int local1;
-    
     
     // RU1 receiving data request
     if (flagBoardType == BOARD_RU1)                                             // are we RU1 (remote)
@@ -3784,13 +3779,12 @@ void CommandProcessInjectorCount(void)
 // 00000000001111111111222222222
 // 01234567890123456789012345678
 // [INQCURRENT?]
-// [INQCURRENT*xxx xxx xxx xxx xxx xxx xxx]
-//
+// [INQCURRENT*xxx,xxx,xxx,xxx,xxx,xxx,xxx]                                     
 //
 void CommandProcessCurrent(void)
-{
-    
+{   
     // RU1 receiving data request
+    // load data into string in ascii form
     if (flagBoardType == BOARD_RU1)                                             // are we RU1 (remote)
     {
         if(cmdBuffer[11]=='?')                                                  // command from CU1
@@ -3841,12 +3835,11 @@ void CommandProcessCurrent(void)
        }
     }
     // CU1 receiving data from RU1
+    // load variables with hex value converted from ascii
     else if (flagBoardType == BOARD_CU1)                                        // are we CU1 (remote)
     {
         if(cmdBuffer[11]=='*')                                                   
-        {
-          
-          
+        {          
             globalCurrentAverage = ConvertAsciiToDecimal(cmdBuffer[12]);
             globalCurrentAverage = globalCurrentAverage << 4;
             globalCurrentAverage = ConvertAsciiToDecimal(cmdBuffer[13]) | globalCurrentAverage;
@@ -3893,7 +3886,6 @@ void CommandProcessCurrent(void)
         }       
     }
 }
-
 // ****************************************************************************
 // ************************** CommandProcessFChooser **************************
 // ****************************************************************************
