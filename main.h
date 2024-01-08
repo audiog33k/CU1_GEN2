@@ -32,7 +32,7 @@
 
 #define VERSION_MAJOR 	1
 #define VERSION_MINOR 	0
-#define VERSION_ALPHA 	1
+#define VERSION_ALPHA 	2
 
 #define BOARD_CU1       1
 #define BOARD_RU1       2
@@ -42,6 +42,7 @@
 #define SEGMENT_HIGH            1
 #define SEGMENT_LOW             0
 
+#define DECIMAL_BYPASS          8
 #define DECIMAL_BOTH_OFF        7
 #define DECIMAL_BOTH_ON         6
 #define DECIMAL_TENS_OFF        5

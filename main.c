@@ -1,7 +1,7 @@
 /*
 Project: 	Professor Wiseacres - FertiWiser
 Author:		Dan Patten
-Date:           01-06-2024
+Date:           01-08-2024
 Compiler        IAR 9.50.1
 Target CPU:     ARM32 M4 Tiva
 CPU Model:      TM4C1233D5PMI
@@ -169,6 +169,10 @@ Version Zip     Date
                                     permanently anticiapting more current code that is activley measuring.  Commands RS485 function [INQCURRENT?] and BLE command [GETCURRENT?] added.  Functions: CurrentTestAllOutputs(),
                                     CurrentMeasureMaxMin(), CurrentEstablishAverage(), InquireCurrent() added.
 
+1.0.2   BUP102      01-08-2024  - Reverse Injector A and B indication on the 7 segment display. Changes made noted by "DJP8" functions CheckProgramMode() and 
+                                    OutputInjector modified. LEDDualDecimal() function modified with "bypass" variable passed to it.
+    
+
 
 ======================
 Notes
@@ -220,6 +224,7 @@ DJP4+   Increase from 9 to 10 on injection setting
 DJP5+   Change injection speed display to 2 digits
 DJP6+   Changed injector B output "else if" to "if"  in OutputInjector(), this will allow both injectors to run at same time, ie InjectorA no longer has presidence
 DJP7    Injector test changes
+DJP8    Swap of 7 seg decimal points for injector A and injector B
 
 ======================
 Files modified in this program:
@@ -1468,8 +1473,9 @@ void LEDDualClear(void)
 // This function does not display hex values.
 // Data is split between 2 ports, PC7-PC4 and PD3-PD0
 //
-// recDecimal can be: DECIMAL_ONES_ON, DECIMAL_ONES_OFF, DECIMAL_TENS_ON, DECIMAL_TENS_OFF, DECIMAL_BOTH_OFF
-//
+// recDecimal can be: DECIMAL_ONES_ON, DECIMAL_ONES_OFF, DECIMAL_TENS_ON, DECIMAL_TENS_OFF, DECIMAL_BOTH_OFF, DECIMAL_BYPASS
+// 
+//            UARTCharPut(UART1_BASE,'*');       
 void LEDDualDecimal(unsigned char recData, unsigned recDecimal)
 {
     unsigned char localPC;
@@ -1503,6 +1509,10 @@ void LEDDualDecimal(unsigned char recData, unsigned recDecimal)
     {
         flagDecimalOnes = 0;
         flagDecimalTens = 0;
+    }
+    else if (recDecimal == DECIMAL_BYPASS)
+    {
+        // do not adjust flags
     }
     
     if(recData > 9)                                                             // numbers greater than nine
@@ -1553,7 +1563,7 @@ void LEDDualDecimal(unsigned char recData, unsigned recDecimal)
         GPIOPinWrite(PORT_C, 0xF0, localPC);							                    
         GPIOPinWrite(PORT_D, 0x0F, localPD);
         LEDClockTens();    
-    }   
+    }  
     else                                                                        // number smaller than 10
     {
         recData = segArray[recData];
@@ -1584,10 +1594,12 @@ void LEDDualDecimal(unsigned char recData, unsigned recDecimal)
         if (flagDecimalTens)
         {
             localPD = (localPD & 0xF7);                                         // 1111 0111 low so decimal is turned on
+//            UARTCharPut(UART1_BASE,'A');         
         }
         else
         {
             localPD = (localPD | 0x08);                                         // 0000 1000 high so decimal is turned off
+//            UARTCharPut(UART1_BASE,'a');         
         }        
         GPIOPinWrite(PORT_C, 0xF0, localPC);                                    // get data on ports	                                						                    
         GPIOPinWrite(PORT_D, 0x0F, localPD);                                       
@@ -2611,7 +2623,8 @@ void SendZoneViaRS485(void)
 // Switch3 increments injectorB rate 0-10
 // When is data stored to EEPROM?  It is stored when exiting program mode which oocurs in SwitchInputsDebounce()
 //
-void CheckProgramMode(void)
+void 
+CheckProgramMode(void)
 {
     if (flagBoardType == BOARD_CU1)                                             // are we a CU1 (control) or RU1 (remote)
     {
@@ -2637,20 +2650,26 @@ void CheckProgramMode(void)
                 {
                     globalZoneArrayA[globalZoneActive] = 0;
                 }
-                flagDecimalTens = 0;                                            // clear tens flag
-                LEDDualDecimal(globalZoneArrayA[globalZoneActive], DECIMAL_ONES_ON); 
+//                flagDecimalTens = 0;                                                  // clear tens flag
+//                LEDDualDecimal(globalZoneArrayA[globalZoneActive], DECIMAL_ONES_ON); 
+                flagDecimalOnes = 0;                                                    // DJP8,clear ones flag
+                flagDecimalTens = 1;                                                    // DJP8, set tens flag
+                LEDDualDecimal(globalZoneArrayA[globalZoneActive], DECIMAL_BYPASS);    // DJP8, make InjectorA on the left
                 flagSwitch2Released = 0;   
             }  
             // Injector B rate increment
             if(flagSwitch3Released)
             {
                 globalZoneArrayB[globalZoneActive]++;
-                if(globalZoneArrayB[globalZoneActive] > 10)                     // DJP4+ (was 9) now 10, max injection rate reached wrap to 0.  
+                if(globalZoneArrayB[globalZoneActive] > 10)                             // DJP4+ (was 9) now 10, max injection rate reached wrap to 0.  
                 {
                     globalZoneArrayB[globalZoneActive] = 0;
                 }
-                flagDecimalOnes = 0;                                            // clear ones flag                
-                LEDDualDecimal(globalZoneArrayB[globalZoneActive], DECIMAL_TENS_ON); 
+//                flagDecimalOnes = 0;                                                  // clear ones flag                
+//                LEDDualDecimal(globalZoneArrayB[globalZoneActive], DECIMAL_TENS_ON); 
+                flagDecimalOnes = 1;                                                    // DJP8, clear ones flag
+                flagDecimalTens = 0;                                                    // DJP8, set tens flag
+                LEDDualDecimal(globalZoneArrayB[globalZoneActive], DECIMAL_BYPASS);    // DJP8, make InjectorB on the right
                 flagSwitch3Released = 0;   
             }        
         }
@@ -4043,8 +4062,7 @@ unsigned char ConvertAsciiToDecimal(unsigned char inputVar)
     {
         returnVar = inputVar - 0x37;                                            // convert ASCII 'A' to decimal 10, 'B' to 11 etc
     }
-    return returnVar;
-    
+    return returnVar;   
 }
 // ****************************************************************************
 // *************************** OutputInjector *********************************
@@ -4073,7 +4091,6 @@ void OutputInjector(unsigned char zoneIn)
     SendStringDebug(stringDebug);
 */   
   
-  
     if(flagTestInjectorA)
     {
         localInjValA = 10;                                                      // simulate globalZoneArrayA[zoneIn], Zone1 with injector value set to 10;
@@ -4096,11 +4113,12 @@ void OutputInjector(unsigned char zoneIn)
   
 
     // *** INJECTOR A ***
-//    if (globalZoneArrayA[zoneIn])                                               // if active zone InjectorA not zero execute
+//    if (globalZoneArrayA[zoneIn])                                             // if active zone InjectorA not zero execute
     if (localInjValA)                                                           // if active zone InjectorA not zero execute
     {
-//        UARTCharPut(UART1_BASE,'A');                                            // @@@ Debug
-        LEDDualDecimal(zoneIn,DECIMAL_ONES_ON);                                 // yes injection, indicate with decimal point
+//        UARTCharPut(UART1_BASE,'A');                                          // @@@ Debug
+//        LEDDualDecimal(zoneIn,DECIMAL_ONES_ON);                                 // yes injection, indicate with decimal point
+        LEDDualDecimal(zoneIn,DECIMAL_TENS_ON);                                 // DJP8 yes injection, indicate with decimal point
         globalInjectionTimeCountA++;                                            // increment at 0.01s (frequency of this routine being called)
 
         if (globalInjectionTimeCountA == 1)                                     // DJPQ3+
@@ -4133,8 +4151,21 @@ void OutputInjector(unsigned char zoneIn)
     }
     else
     {
-        flagDecimalOnes = 0;                                                    // turn off decimal point
-        if (zoneIn != 0) LEDDualDecimal(zoneIn,DECIMAL_ONES_OFF);               // display zone input with no injection on decimal points
+//        if (zoneIn != 0) LEDDualDecimal(zoneIn,DECIMAL_ONES_OFF);               // display zone input with no injection on decimal points
+        if (zoneIn != 0) 
+        {
+            if (localInjValB)                                                   // DJP8 was there B injection? 
+            {
+                flagDecimalOnes = 1;                                            // turn on ONES(B) decimal point
+                flagDecimalTens = 0;                                            // turn off TENS(A) decimal point
+            }
+            else
+            {
+                flagDecimalOnes = 0;                                            // turn off ONES(B) decimal point
+                flagDecimalTens = 0;                                            // turn off TENS(A) decimal point
+            }          
+            LEDDualDecimal(zoneIn,DECIMAL_BYPASS);                              // DJP8 display zone input with no injection on decimal points
+        }
         TurnOffInjectorA();            
         GPIOPinWrite(PORT_B, PIN_LED2, PIN_LED2);                               // turn off injection LED (low asserted)                             
     }
@@ -4143,7 +4174,8 @@ void OutputInjector(unsigned char zoneIn)
     if(localInjValB)                                                            // if active zone Injector B not zero execute
     {
 //        UARTCharPut(UART1_BASE,'B');                                           // @@@ Debug
-        LEDDualDecimal(zoneIn,DECIMAL_TENS_ON);                                 // yes injection, indicate with decimal point on "tens" 7 seg display
+//        LEDDualDecimal(zoneIn,DECIMAL_TENS_ON);                                 // yes injection, indicate with decimal point on "tens" 7 seg display
+        LEDDualDecimal(zoneIn,DECIMAL_ONES_ON);                                 // DJP8 yes injection, indicate with decimal point on "tens" 7 seg display
         globalInjectionTimeCountB++;                                            // increment at 0.01s (frequency of this routine being called)
         if (globalInjectionTimeCountB == 1+SOLENOID_OFFSET_B) 
         {
@@ -4167,10 +4199,22 @@ void OutputInjector(unsigned char zoneIn)
         }
         flagClearLEDOnce = 1;                                                   // set the flag        
     }
-    else
+    else                                                                        // No B injection
     {
-        flagDecimalTens = 0;                                                    // turn off decimal point
-        if (zoneIn != 0) LEDDualDecimal(zoneIn,DECIMAL_TENS_OFF);               // display zone input with no injection on decimal points
+        if (zoneIn != 0) 
+        {  
+            if (localInjValA)                                                   // DJP8 was there A injection? 
+            {
+                flagDecimalOnes = 0;                                            // turn off ONES(B) decimal point
+                flagDecimalTens = 1;                                            // turn on TENS(A) decimal point
+            }
+            else
+            {
+                flagDecimalOnes = 0;                                            // turn off ONES(B) decimal point
+                flagDecimalTens = 0;                                            // turn off TENS(A) decimal point
+            }          
+            LEDDualDecimal(zoneIn,DECIMAL_BYPASS);                              // DJP8 display zone input with no injection on decimal points
+        }
         TurnOffInjectorB();
         GPIOPinWrite(PORT_B, PIN_LED2, PIN_LED2);                               // turn off injection LED (low asserted)                             
     }
