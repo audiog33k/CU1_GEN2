@@ -172,6 +172,8 @@ Version Zip     Date
 1.0.2   BUP102      01-08-2024  - Reverse Injector A and B indication on the 7 segment display. Changes made noted by "DJP8" functions CheckProgramMode() and 
                                     OutputInjector modified. LEDDualDecimal() function modified with "bypass" variable passed to it.
     
+1.0.3   BUP103      03-03-2024  - Add function CommandProcessCommit() to the AllWrite command so that the commit command is not required to move RAM to EEPROM. Requested
+                                Jon Lips.
 
 
 ======================
@@ -299,6 +301,21 @@ Set     Detail  ON      OFF     mL Min
 10      Max     2       4       10
 
 const unsigned int pulseIntervalOff[]={0,5800,2800,1800,1300,1000,800, 700, 600, 500, 400};  
+
+====================
+Error Codes
+====================
+
+CU1
+E1	No communication to RU1
+E3      Possible RU1 power problem (use App for more detail)
+E4      Possible RU1 solenoid/injector problem (use App for more detail)
+
+RU1
+E1	No Communication to CU1
+E2	Possible reversal of RS485 wires
+E3      Possible RU1 power problem (use App for more detail)
+E4      Possible RU1 solenoid/injector problem (use App for more detail)
 
 
 
@@ -3431,6 +3448,10 @@ void CommandProcessCommit(unsigned char localSource)
 //
 // This function will return or write the settings for all 8 zones of injector A and injector B
 //
+// As of version 1.0.3, CommandProcessCommit() was added so that when external device writes to
+// values to this function, data is also copied to EEPROM.  This used to take a seperate command "COMMIT"
+// to do this.
+//
 // ALLRD? will return all zone data to the host computer
 // ALLWR> will send all zone data to the host computer
 //
@@ -3497,65 +3518,6 @@ void CommandProcessAllZone(unsigned char localSource)
             }
             if(localSource == 'B') 
             {
-/*              
-                txBuffer[0] = '[';
-                txBuffer[1] = 'A';
-                txBuffer[2] = 'L';
-                txBuffer[3] = 'L';
-                txBuffer[4] = 'R';
-                txBuffer[5] = 'D';
-                txBuffer[6] = '*';
-                txBuffer[7] = ' ';
-                txBuffer[8] = '1';
-                txBuffer[9] = ' ';
-                txBuffer[10] = '2';
-                txBuffer[11] = ' ';
-                txBuffer[12] = '3';
-                txBuffer[13] = ' ';
-                txBuffer[14] = '0';
-                txBuffer[15] = ' ';
-                txBuffer[16] = '0';
-                txBuffer[17] = ' ';
-                txBuffer[18] = '0';
-                txBuffer[19] = ' ';
-                txBuffer[20] = '0';
-                txBuffer[21] = ' ';
-                txBuffer[22] = '0';
-                txBuffer[23] = ' ';
-                txBuffer[24] = '0';
-                txBuffer[25] = ' ';
-                txBuffer[26] = '0';
-                txBuffer[27] = ' ';
-                txBuffer[28] = '0';
-                txBuffer[29] = ' ';
-                txBuffer[30] = '0';
-                txBuffer[31] = ' ';
-                txBuffer[32] = '4';
-                txBuffer[33] = ' ';
-                txBuffer[34] = '5';
-                txBuffer[35] = ' ';
-                txBuffer[36] = '6';
-                txBuffer[37] = ' ';
-                txBuffer[38] = '0';
-                txBuffer[39] = ' ';
-                txBuffer[40] = '0';
-                txBuffer[41] = ' ';
-                txBuffer[42] = '0';
-                txBuffer[43] = ' ';
-                txBuffer[44] = '0';
-                txBuffer[45] = ' ';
-                txBuffer[46] = '0';
-                txBuffer[47] = ' ';
-                txBuffer[48] = '0';
-                txBuffer[49] = ' ';
-                txBuffer[50] = '0';
-                txBuffer[51] = ' ';
-                txBuffer[52] = '0';
-                txBuffer[53] = ' ';
-                txBuffer[54] = '0';
-                txBuffer[55] = ']';
-                txBuffer[56] = NULL;
-*/
                 SendStringBLE(txBuffer);
             }
         }
@@ -3589,6 +3551,8 @@ void CommandProcessAllZone(unsigned char localSource)
             globalZoneArrayB[12] = ConvertAsciiToDecimal(cmdBuffer[54]);
            
             SendAck(localSource);
+            
+            CommandProcessCommit(localSource);                                  // commit RAM to EEPROM.  New as of 1.0.3.
         }
     }   
 }
