@@ -32,7 +32,7 @@
 
 #define VERSION_MAJOR 	1
 #define VERSION_MINOR 	0
-#define VERSION_ALPHA 	2
+#define VERSION_ALPHA 	3
 
 #define BOARD_CU1       1
 #define BOARD_RU1       2
