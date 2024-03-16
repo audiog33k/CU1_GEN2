@@ -32,7 +32,7 @@
 
 #define VERSION_MAJOR 	1
 #define VERSION_MINOR 	0
-#define VERSION_ALPHA 	3
+#define VERSION_ALPHA 	4
 
 #define BOARD_CU1       1
 #define BOARD_RU1       2
@@ -396,5 +396,6 @@ void CurrentTestAllOutputs(void);
 void CommandProcessCurrent(void);
 void InquireCurrent(void);
 
+void CommandProcessXDebug(unsigned char localSource);
 
 #endif

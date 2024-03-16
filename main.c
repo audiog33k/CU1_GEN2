@@ -172,8 +172,17 @@ Version Zip     Date
 1.0.2   BUP102      01-08-2024  - Reverse Injector A and B indication on the 7 segment display. Changes made noted by "DJP8" functions CheckProgramMode() and 
                                     OutputInjector modified. LEDDualDecimal() function modified with "bypass" variable passed to it.
     
-1.0.3   BUP103      03-03-2024  - Add function CommandProcessCommit() to the AllWrite command so that the commit command is not required to move RAM to EEPROM. Requested
-                                Jon Lips.
+1.0.3   BUP103      03-03-2024  - Add function CommandProcessCommit() to the AllWrite command so that the commit command is not required to move RAM to EEPROM. Requested by Jon Lips.
+
+1.0.4   BUP104      03-16-2024  - DJP9 Changed DelayMilliSecondsBlocking() to use SysCtlDelay() rather than using counting system ticks.  The process of counting systicks would sometimes get stuck in the
+                                    loop waiting for proper amount of systicks to occur.  It acts like a tight/fast loop looking for ticks did not let the interrupt process.  Very odd.  Changed to
+                                    a simple multiple calls to SysCtlDelay().
+                                - DJP9 Changed CheckTimerDifference() to use rollover value as 32bit number rather than wrong value 16bit number
+                                - CommandProcessExpand() function revamped.  Changed the function to reset the processor.  Since this function was using DelayMilliSecondsBlocking() that would usually
+                                    hang, the BLE name was not get properly changed and the unit had to be hard reset.  Appears to be resolved now.
+                                - Changed InitLoopTest(), LoopTestResult(), InquireTempAllViaRS485(), InquireInjectorCount() to not process if a CU1 Expansion unit. 
+
+
 
 
 ======================
@@ -227,6 +236,8 @@ DJP5+   Change injection speed display to 2 digits
 DJP6+   Changed injector B output "else if" to "if"  in OutputInjector(), this will allow both injectors to run at same time, ie InjectorA no longer has presidence
 DJP7    Injector test changes
 DJP8    Swap of 7 seg decimal points for injector A and injector B
+DJP9    03-16-2024.  Systick bug.  Checking in a tight loop would not let systick interrupt work.
+
 
 ======================
 Files modified in this program:
@@ -323,6 +334,7 @@ E4      Possible RU1 solenoid/injector problem (use App for more detail)
 #include "main.h"
 
 // 7 segment lookup table, 0 through F and OFF
+//                              0    1    2    3    4    5    6    7    8    9    A    B    C    d    E    F    Blank
 const unsigned char segArray[]={0x3F,0x06,0x5B,0x4F,0x66,0x6D,0x7c,0x07,0x7F,0x67,0x77,0x7C,0x39,0x5E,0x79,0x71,0x00}; 
 
 // hex conversion lookup table
@@ -367,8 +379,6 @@ const unsigned int tempLookup[]=
  504, 491, 480, 468, 457, 446, 435, 424, 414, 404,                              // 81C to 90C
  394                                                                            // 91C
 };
-
-
 
 unsigned int mSecondCounter = 0;                                                // variable used for priority 
 unsigned char txBuffer[TX_BUFFER_SIZE];                                         // string buffer used to send data out serial ports
@@ -975,7 +985,8 @@ void LoopTestResult(void)
 //    UARTCharPut(UART1_BASE,flagLoopTestRU1+0x30);                       // @@@ DEBUG RU1
 //    UARTCharPut(UART1_BASE,',');                                        // @@@ DEBUG RU1
 
-    if (flagBoardType == BOARD_CU1)                                             // are we CU1 controller?
+    if (flagBoardType == BOARD_CU1 && flagExpand == FALSE)                      // are we CU1 controller and not in expansion
+//    if (flagBoardType == BOARD_CU1)                                             // are we CU1 controller?
     {
         if(flagLoopTestCU1 == LOOP_TEST_CU1_PASS)
         {
@@ -1074,7 +1085,8 @@ void LoopTest(unsigned char localSource)
 //
 void InitLoopTest(void)
 {
-    if (flagBoardType == BOARD_CU1)                                             // are we CU1 controller?
+//    if (flagBoardType == BOARD_CU1)                                           // are we CU1 controller?
+    if (flagBoardType == BOARD_CU1 && flagExpand == FALSE)                      // are we CU1 controller and not in expansion
     {
         flagLoopTestCU1 = LOOP_TEST_CU1_FAIL;                                   // set flag to fail and see if it gets cleared
         txBuffer[0] =  '[';
@@ -1092,7 +1104,6 @@ void InitLoopTest(void)
         SendStringRS485NoChecking(txBuffer);                                      
     }
 }
-
 // ****************************************************************************
 // *************************** RU1InitInjectorA ****************************
 // ****************************************************************************
@@ -2523,7 +2534,8 @@ void TurnOffInjectorAB(void)
 //
 void InquireTempAllViaRS485(void)
 {
-    if (flagBoardType == BOARD_CU1)                                             
+    if (flagBoardType == BOARD_CU1 && flagExpand == FALSE)                      // are we CU1 controller and not in expansion
+//    if (flagBoardType == BOARD_CU1)                                             
     {
         if (flagExpand)                                                         // flagExpand is set, do not send request
         {
@@ -2544,7 +2556,8 @@ void InquireTempAllViaRS485(void)
 //
 void InquireInjectorCount(void)
 {
-    if (flagBoardType == BOARD_CU1)                                             
+    if (flagBoardType == BOARD_CU1 && flagExpand == FALSE)                      // are we CU1 controller and not in expansion
+//    if (flagBoardType == BOARD_CU1)                                             
     {
         if (flagExpand)                                                         // flagExpand is set, do not send request
         {
@@ -2564,7 +2577,8 @@ void InquireInjectorCount(void)
 //
 void InquireCurrent(void)
 {
-    if (flagBoardType == BOARD_CU1)                                             
+    if (flagBoardType == BOARD_CU1 && flagExpand == FALSE)                      // are we CU1 controller and not in expansion
+//    if (flagBoardType == BOARD_CU1)                                             
     {
         if (flagExpand)                                                         // flagExpand is set, do not send request
         {
@@ -2606,13 +2620,13 @@ void SendZoneViaRS485(void)
             txBuffer[5] = 'I';
             txBuffer[6] = 'A';
             txBuffer[7] = ':';
-            txBuffer[8] = hexArray[globalZoneArrayA[globalActiveZone]];     // how much A injection
+            txBuffer[8] = hexArray[globalZoneArrayA[globalActiveZone]];         // how much A injection
             txBuffer[9] = ',';
 
             txBuffer[10] = 'I';
             txBuffer[11] = 'B';
             txBuffer[12] = ':';
-            txBuffer[13] = hexArray[globalZoneArrayB[globalActiveZone]];     // how much B injection
+            txBuffer[13] = hexArray[globalZoneArrayB[globalActiveZone]];        // how much B injection
             txBuffer[14] = ',';                       
 
             if (flagExpand)                                                     // flagExpand is set, do not send flow request
@@ -2995,10 +3009,34 @@ void ProcessSerialInput(unsigned char localSource)
         case '4':                                                               // Clear commands
             CommandProcessClear(localSource);
             break;
+        case 'X':                                                               // X Debug Command
+            CommandProcessXDebug(localSource);
+            break;
                    
     }  
 }
-
+// ****************************************************************************
+// ************************** CommandProcessXDebug ****************************
+// ****************************************************************************
+//
+// This function is processed only by RU1.  Max temperature and injection count is cleared.
+//
+// 0000000000111111
+// 0123456789010123
+// [X]        
+//
+void CommandProcessXDebug(unsigned char localSource)
+{
+    if (flagBoardType == BOARD_CU1)                                             // are we CU1 (controller)
+    {
+        if(cmdBuffer[2]=='1')
+        {
+            SendStringDebug("X1 Start");
+            DelayMilliSecondsBlocking(1000);           
+            SendStringDebug("X1 End");
+        }
+    }
+}
 // ****************************************************************************
 // *************************** CommandProcessClear ****************************
 // ****************************************************************************
@@ -3124,11 +3162,11 @@ void GetSerialNumberFromEEPROM(void)
 // ****************************************************************************
 //
 // This function handles [EXPAND] command.  It will turn a 2nd CU1 into an expansion unit.
-// ie 2 or more CU1 working together for a 16 valve timer box.
+// ie 2 or more CU1 working together for a 2x12 valve timer box.
 // The expansion unit will:
 //  - Transmit injector info only.  No valve replication data is sent.
-//  - Will not poll for flow data
-// The expansion unit will determine if it is Primary or Expansion by reading EEPROM location.
+//  - Will not poll for data such as injection, temperature and current
+// The expansion unit will determine if it is Primary or Expansion by reading EEPROM 0x07.  0=Primary, 0xA5=Expansion and flag is set
 //
 // 01234567
 // [EXPAND]
@@ -3139,37 +3177,39 @@ void CommandProcessExpand(unsigned char localSource)
     {
         if(cmdBuffer[2]=='X' && cmdBuffer[3]=='P' && cmdBuffer[4]=='A' && cmdBuffer[5]=='N' && cmdBuffer[6]=='D')
         {    
-    
+            // in Primary mode, change it to Expansion mode
             if (flagExpand == 0)                                                // if Expansion flag not set, toggle it                                               
             {
                 flagExpand = 1;
-//                LEDPortWriteDecimal(segArray[14],DECIMAL_OFF);                   // display "E" for expansion
                 LEDDualHex(segArray[14], SEGMENT_LOW, DECIMAL_OFF);
+                LEDDualHex(segArray[DISPLAY_OFF], SEGMENT_HIGH, DECIMAL_OFF);
                 I2CWriteEEPROMSingle(EA_EXPAND,0xA5,I2C_PHYSICAL_EEPROM);       // store expansion is set in EEPROM
-                SetBLEName("S-,FertiWiser-E");
-                BLEReset();                                                     // reset the BLE module
-                StringCopy(txBuffer,"[Expand]");
+                SetBLEName("S-,FertiWiser-E");                                  // Change name so user knows he is connecting to expansion unit
+                StringCopy(txBuffer,"[EXPANSION]");
+//                SendStringDebug("Debug Expansion");                
+
                 if(localSource == 'D') SendStringDebug(txBuffer);
                 if(localSource == 'B') SendStringBLE(txBuffer);
                 if(localSource == '4') SendStringRS485NoChecking(txBuffer);    
-                DelaySecondsBlocking(1);  
             }
+            // in Expansion mode, change it to Primary
             else                                                                // if Expansion flag set, toggle it                                               
             {
-                flagExpand = 0;
-//                LEDPortWriteDecimal(ALPHA_P,DECIMAL_OFF);                        // display "P" for primary
+                flagExpand = 0;                                                 // clear expansion flag
                 LEDDualHex(ALPHA_P, SEGMENT_LOW, DECIMAL_OFF);
+                LEDDualHex(segArray[DISPLAY_OFF], SEGMENT_HIGH, DECIMAL_OFF);
                 I2CWriteEEPROMSingle(EA_EXPAND,0x00,I2C_PHYSICAL_EEPROM);       // store expansion is not set in EEPROM
                 SetBLEName("S-,FertiWiser");
-                BLEReset();                                                     // reset the BLE module
-                StringCopy(txBuffer,"[Primary]");
+                StringCopy(txBuffer,"[PRIMARY]");
+//                SendStringDebug("Debug Primary");
+                
                 if(localSource == 'D') SendStringDebug(txBuffer);
                 if(localSource == 'B') SendStringBLE(txBuffer);
                 if(localSource == '4') SendStringRS485NoChecking(txBuffer);    
-                DelaySecondsBlocking(1);            
             }
 
-            BLECmdModeSequence();                                               // get config data from module again since name has changed
+            DelayMilliSecondsBlocking(100);
+            HWREG(NVIC_APINT) = NVIC_APINT_VECTKEY | NVIC_APINT_SYSRESETREQ;    // reset the processor
         }
     }    
 }
@@ -3326,6 +3366,7 @@ void CommandProcessGet(void)
 //
 // 0123
 // [H]
+
 void CommandProcessHello(unsigned char localSource)
 {
 //    if(cmdBuffer[2]=='E' && cmdBuffer[3]=='L' && cmdBuffer[4]=='L' && cmdBuffer[5]=='O')                              
@@ -3372,8 +3413,6 @@ void CommandProcessQuiet(unsigned char localSource)
         }
     }       
 }
-
-
 // ****************************************************************************
 // *********************** CommandProcessCChooser *****************************
 // ****************************************************************************
@@ -4459,7 +4498,7 @@ void CommandProcessEEPROMRead(unsigned char localSource)
 {
     unsigned char localRead = 0;
     unsigned char localFlag = 0;
-    unsigned char localAddress = 0xf1;
+    unsigned char localAddress = 0;                  
 
     if(cmdBuffer[2] == 'D')   
     {
@@ -4471,8 +4510,7 @@ void CommandProcessEEPROMRead(unsigned char localSource)
        localAddress = Convert2ASCIIHexToDecimal(3); 
        localFlag = 1;
     }
-    
-    
+        
     if (localFlag == 1)
     {
         localRead = I2CReadEEPROMSingle(localAddress,I2C_PHYSICAL_EEPROM);  
@@ -4495,7 +4533,11 @@ void CommandProcessEEPROMRead(unsigned char localSource)
         txBuffer[15] = 0;
 //        SendStringDebug(txBuffer);
         if(localSource == 'D') SendStringDebug(txBuffer);
-        if(localSource == 'B') SendStringBLE(txBuffer);
+        if(localSource == 'B') 
+        {
+            SendStringBLE(txBuffer);
+            SendStringDebug(txBuffer);
+        }
         if(localSource == '4') SendStringRS485NoChecking(txBuffer);  
     }
 }
@@ -4562,6 +4604,8 @@ unsigned char Convert2ASCIIHexToDecimal(unsigned char lIndex)
 // ************************* CheckTimerDifference *****************************
 // ****************************************************************************
 //
+// DJP9 4,294,967,295 should be correct value.  Was using unsigned 16 bit number as a value which was an error
+//
 // This function checks the difference between the current system timer which increments
 // 1000x a second and a value of the counter at a previous moment in time.  If the
 // difference has been exceeded a "1" is returned.
@@ -4575,7 +4619,7 @@ unsigned int CheckTimerDifference (unsigned int recCompare, unsigned int recPrev
 
     if (mSecondCounter < recPrevious)					        // a wrap has occured
     {
-        if ((mSecondCounter + (65535-recPrevious)) >= recCompare)
+        if ((mSecondCounter + (4294967295-recPrevious)) >= recCompare)
         {
                 returnVar = 1;
         }
@@ -4600,21 +4644,23 @@ unsigned int CheckTimerDifference (unsigned int recCompare, unsigned int recPrev
 // ****************************************************************************
 // ********************** DelayMilliSecondsBlocking ***************************
 // ****************************************************************************
-void DelayMilliSecondsBlocking(unsigned int length)
+//
+// This is a blocking delay.  Be careful using this.
+//
+// I used to used use the System Tick and count that in a while loop.  However, a tight loop
+// comparing the system tick would sometimes get goofy an systick interrupt would sometime not work.
+// At DJP9, I changed to using the SysCtlDelay.  This seems to be more solid.
+//
+// Documentation states that SysCtlDelay is 3 instructions per loop  
+// 80Mhz = 12.5nS per instruction
+// So 12.5nS * 3 = 37.5nS
+// 1mS / 37.5nS = 26,667
+// So multiply passed variable by 26,667
+// SysCtlDelay() function can receive a 32bit number so 2^32/26,667 is max milliseconds this function can handle 161,059 (lots)
+//   
+void DelayMilliSecondsBlocking(unsigned int localLength)
 {
-    unsigned int previousValue;
-    unsigned char flagExit = 0;
-
-    previousValue = mSecondCounter;											   // store latest value of mS counter incremented by interrupt
-
-    while (flagExit == 0)
-    {
-        if (CheckTimerDifference(length, previousValue))
-        {
-                previousValue = mSecondCounter;
-                flagExit = 1;
-        }
-    }
+    SysCtlDelay(26667 * localLength);
 }
 // ****************************************************************************
 // *************************** DelaySecondsBlocking ***************************
@@ -4632,9 +4678,10 @@ void DelaySecondsBlocking(unsigned int length)
 // *************************** SysTickIntHandler ******************************
 // ****************************************************************************
 //
-// This is an interrupt that fires 1000 times a second.  This function name is
-// added to the vector table in "startup.c"  mSecondCounter is an unsigned int, so the
-// max mS it will count is 65536, or roughly 6.5 seconds.
+// DJP9.  This function used to state that the max count was 65536.  The mSecondCounter variable is 
+// an unsigned int (32 bits) so max count is 4,294,967,295.  
+// 4,294,967,295 * 0.001S = long time 4.29 million seconds.
+// This function name is added to the vector table in "startup.c" 
 //
 void SysTickIntHandler(void)
 {
