@@ -112,7 +112,11 @@ void Setup (void)
                    
     // ********* Setup system tick interrupt ***************  
 
-    SysTickPeriodSet(80000);                                                    // for 80MHz =  1ms/12.5nS=80,000
+//    SysTickPeriodSet(80000);                                                    // for 80MHz =  1ms/12.5nS=80,000
+
+    // at 80MHz clock tick is 80Mhz is 12.5nS per tick
+    // 80,000 * 12.5nS = 1mS
+    SysTickPeriodSet(80000);                                                    
 
     // Enable the SysTick Interrupt.
     SysTickIntEnable();
